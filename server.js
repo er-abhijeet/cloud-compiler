@@ -56,9 +56,6 @@ app.post('/compile', upload.single('code'), async (req, res) => {
     });
 });
 
-// New endpoint to install libraries globally
-const { exec } = require('child_process');
-
 app.post('/install', async (req, res) => {
     const lang = req.body.lang;
     let dependencies = req.body.dependencies || [];
