@@ -3,7 +3,7 @@ const multer = require('multer');
 const fs = require('fs');
 const { exec } = require('child_process');
 const path = require('path');
-const fetch = require('node-fetch');
+// const fetch = require('node-fetch');
 
 const app = express();
 const port = process.env.PORT || 3000;
