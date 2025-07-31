@@ -53,6 +53,7 @@ WORKDIR /usr/src/app
 # Copy app files
 COPY package*.json ./
 RUN npm install
+RUN npm install node-fetch
 COPY . .
 
 # Expose port

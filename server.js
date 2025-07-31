@@ -3,36 +3,31 @@ const multer = require('multer');
 const fs = require('fs');
 const { exec } = require('child_process');
 const path = require('path');
+const fetch = require('node-fetch');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 const upload = multer({ dest: 'uploads/' });
 
-// Utility: detect command based on language
-function getCommand(lang, filename) {
-    const filepath = path.join(__dirname, 'uploads', filename);
-    const outputPath = filepath + '.out';
-
-    switch (lang) {
-        case 'c':
-            return `gcc ${filepath} -o ${outputPath} && ${outputPath}`;
-        case 'cpp':
-            return `g++ ${filepath} -o ${outputPath} && ${outputPath}`;
-        case 'python':
-            return `python3 ${filepath}`;
-        case 'java':
-            const base = path.basename(filename, '.java');
-            return `javac ${filepath} && java -cp uploads ${base}`;
-        default:
-            throw new Error('Unsupported language');
-    }
-}
-
 app.post('/compile', upload.single('code'), async (req, res) => {
     const lang = req.body.lang;
     if (!lang || !req.file) {
         return res.status(400).json({ error: 'Missing language or code file' });
+    }
+
+    // Fetch getCommand from Gist
+    const gistUrl = 'https://gist.githubusercontent.com/er-abhijeet/8bc83b87e38d80af99acfe750f52ae52/raw/getCommand.js';
+    let getCommand;
+    try {
+        const response = await fetch(gistUrl);
+        if (!response.ok) throw new Error('Failed to fetch getCommand');
+        const code = await response.text();
+        const module = { exports: {} };
+        eval(code); // This will set module.exports
+        getCommand = module.exports;
+    } catch (err) {
+        return res.status(500).json({ error: 'Failed to fetch getCommand: ' + err.message });
     }
 
     let command;
