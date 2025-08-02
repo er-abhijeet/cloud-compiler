@@ -11,6 +11,22 @@ const port = process.env.PORT || 3000;
 const upload = multer({ dest: 'uploads/' });
 app.use(express.json()); // Add this to parse JSON bodies
 
+function getDefaultExtension(lang) {
+    switch (lang) {
+        case 'c': return '.c';
+        case 'cpp': return '.cpp';
+        case 'python': return '.py';
+        case 'javascript': return '.js';
+        case 'typescript': return '.ts';
+        case 'java': return '.java';
+        case 'go': return '.go';
+        case 'rust': return '.rs';
+        case 'csharp': return '.cs';
+        default: return '';
+    }
+}
+
+
 app.post('/compile', upload.single('code'), async (req, res) => {
     const lang = req.body.lang;
     if (!lang || !req.file) {
@@ -18,7 +34,7 @@ app.post('/compile', upload.single('code'), async (req, res) => {
     }
 
     // Fetch getCommand from Gist
-    const gistUrl = 'https://gist.githubusercontent.com/er-abhijeet/8bc83b87e38d80af99acfe750f52ae52/raw/getCommand.js';
+    const gistUrl = 'https://gist.githubusercontent.com/er-abhijeet/8bc83b87e38d80af99acfe750f52ae52/raw/e202ffd67b95120106772844fbda4d1e43158fa5/getCommand.js';
     let getCommand;
     try {
         const response = await fetch(gistUrl);
@@ -32,15 +48,30 @@ app.post('/compile', upload.single('code'), async (req, res) => {
     }
 
     let command;
+    let newFilePath
     try {
-        command = getCommand(lang, req.file.filename);
+        // Get original extension
+        const originalExt = path.extname(req.file.originalname) || getDefaultExtension(lang);
+        const newFilename = req.file.filename + originalExt;
+         newFilePath = path.join(__dirname, 'uploads', newFilename);
+
+        // Rename file to include extension
+        fs.renameSync(req.file.path, newFilePath);
+
+        // Now generate the command
+        command = getCommand(lang, newFilename);
+        // command = getCommand(lang, req.file.filename);
+        // console.log('Generated command:', command);
+        // console.log('File path:', req.file.path);
+        // console.log('File size:', req.file.size);
+   
     } catch (err) {
         return res.status(400).json({ error: err.message });
     }
-
+const cleanupPath = newFilePath; 
     exec(command, { timeout: 5000 }, (error, stdout, stderr) => {
         // Cleanup
-        fs.unlinkSync(req.file.path);
+        fs.unlinkSync(cleanupPath);
 
         if (error) {
             return res.status(200).json({
@@ -124,6 +155,6 @@ app.post('/install', async (req, res) => {
 });
 
 
-app.listen(port, () => {
+app.listen(port, '0.0.0.0',() => {
     console.log(`Compiler server running on port ${port}`);
 });
