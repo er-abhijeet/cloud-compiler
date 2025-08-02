@@ -33,45 +33,57 @@ app.post('/compile', upload.single('code'), async (req, res) => {
         return res.status(400).json({ error: 'Missing language or code file' });
     }
 
-    // Fetch getCommand from Gist
-    const gistUrl = 'https://gist.githubusercontent.com/er-abhijeet/8bc83b87e38d80af99acfe750f52ae52/raw/e202ffd67b95120106772844fbda4d1e43158fa5/getCommand.js';
+    const gistUrl = 'https://gist.githubusercontent.com/er-abhijeet/6d9caf2ecbc4976f750f07d973d36e20/raw/32bbaf3f60ae7c66fee829291a8c958443067e9b/getCommand1.js';
     let getCommand;
     try {
         const response = await fetch(gistUrl);
         if (!response.ok) throw new Error('Failed to fetch getCommand');
         const code = await response.text();
         const module = { exports: {} };
-        eval(code); // This will set module.exports
+        eval(code);
         getCommand = module.exports;
     } catch (err) {
         return res.status(500).json({ error: 'Failed to fetch getCommand: ' + err.message });
     }
 
-    let command;
-    let newFilePath
+    // Add the appropriate extension to the uploaded file
+    const extMap = {
+        c: '.c',
+        cpp: '.cpp',
+        python: '.py',
+        java: '.java',
+        javascript: '.js',
+        typescript: '.ts',
+        go: '.go',
+        rust: '.rs',
+        csharp: '.cs',
+    };
+
+    const extension = extMap[lang.toLowerCase()] || '';
+    const newFilename = req.file.filename + extension;
+    const newFilePath = path.join(__dirname, 'uploads', newFilename);
+
     try {
-        // Get original extension
-        const originalExt = path.extname(req.file.originalname) || getDefaultExtension(lang);
-        const newFilename = req.file.filename + originalExt;
-         newFilePath = path.join(__dirname, 'uploads', newFilename);
-
-        // Rename file to include extension
         fs.renameSync(req.file.path, newFilePath);
+    } catch (err) {
+        return res.status(500).json({ error: 'Failed to rename file: ' + err.message });
+    }
 
-        // Now generate the command
+    let command;
+    try {
         command = getCommand(lang, newFilename);
-        // command = getCommand(lang, req.file.filename);
-        // console.log('Generated command:', command);
-        // console.log('File path:', req.file.path);
-        // console.log('File size:', req.file.size);
-   
+        console.log('Generated command:', command);
+        console.log('File path:', newFilePath);
     } catch (err) {
         return res.status(400).json({ error: err.message });
     }
-const cleanupPath = newFilePath; 
+
     exec(command, { timeout: 5000 }, (error, stdout, stderr) => {
-        // Cleanup
-        fs.unlinkSync(cleanupPath);
+        try {
+            fs.unlinkSync(newFilePath);
+        } catch (e) {
+            console.warn("File cleanup failed:", e.message);
+        }
 
         if (error) {
             return res.status(200).json({
@@ -86,6 +98,8 @@ const cleanupPath = newFilePath;
         });
     });
 });
+
+
 
 app.post('/install', async (req, res) => {
     const lang = req.body.lang;
