@@ -2,38 +2,31 @@ const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
 const { exec } = require('child_process');
+const { spawn } = require('child_process');
 const path = require('path');
 // const fetch = require('node-fetch');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-const upload = multer({ dest: 'uploads/' });
-app.use(express.json()); // Add this to parse JSON bodies
-
-function getDefaultExtension(lang) {
-    switch (lang) {
-        case 'c': return '.c';
-        case 'cpp': return '.cpp';
-        case 'python': return '.py';
-        case 'javascript': return '.js';
-        case 'typescript': return '.ts';
-        case 'java': return '.java';
-        case 'go': return '.go';
-        case 'rust': return '.rs';
-        case 'csharp': return '.cs';
-        default: return '';
-    }
-}
+const upload = multer({ dest: 'uploads/' }).fields([
+    { name: 'code', maxCount: 1 },
+    { name: 'input', maxCount: 1 }
+]);
+app.use(express.json()); // Add this to parse JSON bodie
 
 
-app.post('/compile', upload.single('code'), async (req, res) => {
+app.post('/compile', upload, async (req, res) => {
     const lang = req.body.lang;
-    if (!lang || !req.file) {
+    const codeFile = req.files?.code?.[0];
+    const inputFile = req.files?.input?.[0];
+
+    if (!lang || !codeFile) {
         return res.status(400).json({ error: 'Missing language or code file' });
     }
 
-    const gistUrl = 'https://gist.githubusercontent.com/er-abhijeet/6d9caf2ecbc4976f750f07d973d36e20/raw/32bbaf3f60ae7c66fee829291a8c958443067e9b/getCommand1.js';
+    // Load getCommand from Gist
+    const gistUrl = 'https://gist.githubusercontent.com/er-abhijeet/6d9caf2ecbc4976f750f07d973d36e20/raw/ba2167a3e345a9bb8f2a58795382ccda23641e2a/getCommand1.js';
     let getCommand;
     try {
         const response = await fetch(gistUrl);
@@ -46,57 +39,117 @@ app.post('/compile', upload.single('code'), async (req, res) => {
         return res.status(500).json({ error: 'Failed to fetch getCommand: ' + err.message });
     }
 
-    // Add the appropriate extension to the uploaded file
+    // Rename file to include correct extension
     const extMap = {
-        c: '.c',
-        cpp: '.cpp',
-        python: '.py',
-        java: '.java',
-        javascript: '.js',
-        typescript: '.ts',
-        go: '.go',
-        rust: '.rs',
-        csharp: '.cs',
+        c: '.c', cpp: '.cpp', python: '.py', java: '.java',
+        javascript: '.js', typescript: '.ts', go: '.go',
+        rust: '.rs', csharp: '.cs'
     };
 
     const extension = extMap[lang.toLowerCase()] || '';
-    const newFilename = req.file.filename + extension;
+    const newFilename = codeFile.filename + extension;
     const newFilePath = path.join(__dirname, 'uploads', newFilename);
 
     try {
-        fs.renameSync(req.file.path, newFilePath);
+        fs.renameSync(codeFile.path, newFilePath);
     } catch (err) {
         return res.status(500).json({ error: 'Failed to rename file: ' + err.message });
     }
 
-    let command;
+    let commandObj;
     try {
-        command = getCommand(lang, newFilename);
-        console.log('Generated command:', command);
-        console.log('File path:', newFilePath);
+        commandObj = getCommand(lang, newFilename);
     } catch (err) {
         return res.status(400).json({ error: err.message });
     }
 
-    exec(command, { timeout: 5000 }, (error, stdout, stderr) => {
-        try {
-            fs.unlinkSync(newFilePath);
-        } catch (e) {
-            console.warn("File cleanup failed:", e.message);
-        }
+    const runCommand = (cmdString, inputStream, onExit) => {
+        const [execCmd, ...args] = cmdString.split(' ');
+        const child = spawn(execCmd, args);
 
-        if (error) {
-            return res.status(200).json({
-                success: false,
-                error: stderr || error.message,
-            });
-        }
+        let stdout = '', stderr = '';
 
-        res.status(200).json({
-            success: true,
-            output: stdout,
+        child.stdout.on('data', data => stdout += data.toString());
+        child.stderr.on('data', data => stderr += data.toString());
+
+        child.on('error', err => {
+            onExit(err, null, null);
         });
-    });
+
+        child.on('close', code => {
+            onExit(null, { code, stdout, stderr }, child);
+        });
+
+        if (inputStream) {
+            inputStream.pipe(child.stdin);
+        } else {
+            child.stdin.end();
+        }
+    };
+
+    const cleanUpFiles = () => {
+        fs.unlink(newFilePath, () => { });
+        if (inputFile) fs.unlink(inputFile.path, () => { });
+        if (commandObj.run && commandObj.compile) {
+            fs.unlink(newFilePath + '.out', () => { });
+        }
+    };
+
+    if (commandObj.compile && commandObj.run) {
+        // Compile first
+        runCommand(commandObj.compile, null, (compileErr, compileResult) => {
+            if (compileErr || compileResult.code !== 0) {
+                cleanUpFiles();
+                return res.status(200).json({
+                    success: false,
+                    error: compileErr?.message || compileResult.stderr || `Compilation failed`
+                });
+            } else {
+                // Proceed to run only if compile succeeds
+                const inputStream = inputFile ? fs.createReadStream(inputFile.path) : null;
+                runCommand(commandObj.run, inputStream, (runErr, runResult) => {
+                    cleanUpFiles();
+                    if (runErr || runResult.code !== 0) {
+                        return res.status(200).json({
+                            success: false,
+                            error: runErr?.message || runResult.stderr || runResult.stdout || `Execution failed`
+                        });
+                    }
+
+                    res.status(200).json({ success: true, output: runResult.stdout });
+                });
+            }
+
+
+            // Now run the compiled program
+            const inputStream = inputFile ? fs.createReadStream(inputFile.path) : null;
+            runCommand(commandObj.run, inputStream, (runErr, runResult) => {
+                cleanUpFiles();
+                if (runErr || runResult.code !== 0) {
+                    return res.status(200).json({
+                        success: false,
+                        error: runErr?.message || runResult.stderr || runResult.stdout || `Execution failed`
+                    });
+                }
+
+                res.status(200).json({ success: true, output: runResult.stdout });
+            });
+        });
+    } else {
+        // Direct run (Python, JS, etc.)
+        const inputStream = inputFile ? fs.createReadStream(inputFile.path) : null;
+        runCommand(commandObj.run, inputStream, (err, result) => {
+            cleanUpFiles();
+            if (err || result.code !== 0) {
+                return res.status(200).json({
+                    success: false,
+                    error: err?.message || result.stderr || `Execution failed`
+                });
+            }
+
+            res.status(200).json({ success: true, output: result.stdout });
+        });
+    }
 });
 
 
@@ -169,6 +222,6 @@ app.post('/install', async (req, res) => {
 });
 
 
-app.listen(port, '0.0.0.0',() => {
+app.listen(port, () => {
     console.log(`Compiler server running on port ${port}`);
 });
