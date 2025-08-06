@@ -4,16 +4,24 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const { spawn } = require('child_process');
 const path = require('path');
+require('dotenv').config(); // Load environment variables
+const SimpleRequestLogger = require('./middleware/requestLogger');
 // const fetch = require('node-fetch');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Initialize simple request logger
+const requestLogger = new SimpleRequestLogger(process.env.DATABASE_URI);
+
 const upload = multer({ dest: 'uploads/' }).fields([
     { name: 'code', maxCount: 1 },
     { name: 'input', maxCount: 1 }
 ]);
-app.use(express.json()); // Add this to parse JSON bodie
+
+// Middleware setup
+app.use(express.json()); // Parse JSON bodies
+app.use(requestLogger.middleware()); // Log all requests
 
 
 app.post('/compile', upload, async (req, res) => {
@@ -205,6 +213,20 @@ app.post('/install', async (req, res) => {
 });
 
 
+// Graceful shutdown handling
+process.on('SIGTERM', async () => {
+    console.log('Received SIGTERM. Shutting down gracefully...');
+    await requestLogger.close();
+    process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+    console.log('Received SIGINT. Shutting down gracefully...');
+    await requestLogger.close();
+    process.exit(0);
+});
+
 app.listen(port, () => {
-    console.log(`Compiler server running on port ${port}`);
+    console.log(`🚀 Compiler server running on port ${port}`);
+    console.log(`📊 Simple request logging is active`);
 });
