@@ -7,24 +7,67 @@ const path = require('path');
 require('dotenv').config(); // Load environment variables
 const SimpleRequestLogger = require('./middleware/requestLogger');
 // const fetch = require('node-fetch');
+const rateLimit = require('express-rate-limit');
+
 
 const app = express();
 const port = process.env.PORT || 3000;
 
+// ---- REQUEST SIZE LIMITS (GLOBAL) ----
+app.use(express.json({ limit: '100kb' }));
+app.use(express.urlencoded({ extended: false, limit: '100kb' }));
+
+
 // Initialize simple request logger
 const requestLogger = new SimpleRequestLogger(process.env.DATABASE_URI);
 
-const upload = multer({ dest: 'uploads/' }).fields([
+// ---- MULTER CONFIG (SAFE LIMITS) ----
+const upload = multer({
+    dest: 'uploads/',
+    limits: {
+        fileSize: 100 * 1024, // 100 KB PER FILE
+        files: 2              // max 2 files total
+    }
+}).fields([
     { name: 'code', maxCount: 1 },
     { name: 'input', maxCount: 1 }
 ]);
+
+// ---- SAFE MULTER WRAPPER ----
+function safeUpload(req, res, next) {
+    upload(req, res, (err) => {
+        if (err) {
+            console.error('Multer error:', err.message);
+
+            if (err.message === 'Unexpected end of form') {
+                return res.status(400).json({ error: 'Incomplete form data' });
+            }
+
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(413).json({ error: 'File too large' });
+            }
+
+            return res.status(400).json({ error: 'Upload failed' });
+        }
+        next();
+    });
+}
+
+// ---- RATE LIMITER FOR /COMPILE ----
+const compileLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 30,             // 30 requests per IP
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
 
 // Middleware setup
 app.use(express.json()); // Parse JSON bodies
 app.use(requestLogger.middleware()); // Log all requests
 
 
-app.post('/compile', upload, async (req, res) => {
+app.post('/compile', compileLimiter , safeUpload, async (req, res) => {
     const lang = req.body.lang;
     const codeFile = req.files?.code?.[0];
     const inputFile = req.files?.input?.[0];
@@ -225,6 +268,13 @@ process.on('SIGINT', async () => {
     await requestLogger.close();
     process.exit(0);
 });
+
+// ---- GLOBAL ERROR HANDLER ----
+app.use((err, req, res, next) => {
+    console.error('Unhandled error:', err);
+    res.status(400).json({ error: 'Bad request' });
+});
+
 
 app.listen(port, () => {
     console.log(`🚀 Compiler server running on port ${port}`);
