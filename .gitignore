@@ -4,3 +4,5 @@ input.*
 output.*
 .env
 *.sql
+*.txt
+uploads/
