@@ -59,7 +59,8 @@ class SimpleRequestLogger {
     getCountry(ip) {
         try {
             const geo = geoip.lookup(ip);
-            return geo ? geo.country : null;
+            // Return full country name if available
+            return geo ? geo.country_name || geo.country || null : null;
         } catch (error) {
             console.error('Geolocation lookup failed:', error);
             return null;
@@ -89,17 +90,19 @@ class SimpleRequestLogger {
                     const requestType = req.method;
                     const language = req.body?.lang || null;
                     const fileSize = this.getFileSize(req.files);
+                    const requestedUrl = req.originalUrl || req.url || null;
+                    const endpoint = req.route?.path || req.path || null;
 
                     // Insert into database
                     const query = `
-                        INSERT INTO request_logs (ip_address, country, request_type, language, file_size_bytes)
-                        VALUES ($1, $2, $3, $4, $5)
+                        INSERT INTO request_logs (ip_address, country, request_type, language, file_size_bytes, requested_url, endpoint)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
                     `;
 
-                    const values = [clientIP, country, requestType, language, fileSize];
+                    const values = [clientIP, country, requestType, language, fileSize, requestedUrl, endpoint];
 
                     await this.pool.query(query, values);
-                    console.log(`📊 Request logged: ${requestType} - ${clientIP} (${country || 'Unknown'}) - ${language || 'No lang'} - ${fileSize || 0} bytes`);
+                    console.log(`📊 Request logged: ${requestType} - ${clientIP} (${country || 'Unknown'}) - ${language || 'No lang'} - ${fileSize || 0} bytes - URL: ${requestedUrl} - Endpoint: ${endpoint}`);
                 } catch (error) {
                     console.error('Error logging request:', error.message);
                 }
