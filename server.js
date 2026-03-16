@@ -10,6 +10,7 @@ const SimpleRequestLogger = require("./middleware/requestLogger");
 const rateLimit = require("express-rate-limit");
 const crypto = require("crypto");
 const os = require("os");
+const getCommand = require('./getCommand');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -83,22 +84,22 @@ app.post("/compile", compileLimiter, safeUpload, async (req, res) => {
       return res.status(400).json({ error: "Missing language or code file" });
     }
 
-    // Load getCommand from Gist
-    const gistUrl =
-      "https://gist.githubusercontent.com/er-abhijeet/6d9caf2ecbc4976f750f07d973d36e20/raw/ba2167a3e345a9bb8f2a58795382ccda23641e2a/getCommand1.js";
-    let getCommand;
-    try {
-      const response = await fetch(gistUrl);
-      if (!response.ok) throw new Error("Failed to fetch getCommand");
-      const code = await response.text();
-      const module = { exports: {} };
-      eval(code);
-      getCommand = module.exports;
-    } catch (err) {
-      return res
-        .status(500)
-        .json({ error: "Failed to fetch getCommand: " + err.message });
-    }
+    // // Load getCommand from Gist
+    // const gistUrl =
+    //   "https://gist.githubusercontent.com/er-abhijeet/6d9caf2ecbc4976f750f07d973d36e20/raw/ba2167a3e345a9bb8f2a58795382ccda23641e2a/getCommand1.js";
+    // let getCommand;
+    // try {
+    //   const response = await fetch(gistUrl);
+    //   if (!response.ok) throw new Error("Failed to fetch getCommand");
+    //   const code = await response.text();
+    //   const module = { exports: {} };
+    //   eval(code);
+    //   getCommand = module.exports;
+    // } catch (err) {
+    //   return res
+    //     .status(500)
+    //     .json({ error: "Failed to fetch getCommand: " + err.message });
+    // }
 
     // Create an isolated temporary directory for this specific request
     const reqId = crypto.randomUUID();
