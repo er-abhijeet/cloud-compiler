@@ -30,9 +30,9 @@ class SimpleRequestLogger {
 
     getClientIP(req) {
         // Get real client IP, handling various proxy headers
+        const cfConnectingIP = req.headers['cf-connecting-ip'];
         const xForwardedFor = req.headers['x-forwarded-for'];
         const xRealIP = req.headers['x-real-ip'];
-        const cfConnectingIP = req.headers['cf-connecting-ip'];
         
         let clientIP = req.connection?.remoteAddress || 
                       req.socket?.remoteAddress || 
