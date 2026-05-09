@@ -329,6 +329,21 @@ app.post("/install", requireInstallApiKey, async (req, res) => {
   }
 });
 
+app.get("/health", (req, res) => {
+  exec('node -e "console.log(\'Hello World! The server is healthy.\')"', { timeout: 5000 }, (error, stdout, stderr) => {
+    if (error) {
+      return res.status(500).json({
+        status: "unhealthy",
+        error: error.message || stderr
+      });
+    }
+    res.status(200).json({
+      status: "healthy",
+      output: stdout.trim()
+    });
+  });
+});
+
 // Graceful shutdown handling
 process.on("SIGTERM", async () => {
   console.log("Received SIGTERM. Shutting down gracefully...");
